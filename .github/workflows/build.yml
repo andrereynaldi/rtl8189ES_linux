@@ -1,0 +1,104 @@
+name: Build Kmod RTL8189FS (APK k6.12)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential clang flex bison g++ gawk \
+            gcc-multilib gettext git libncurses-dev libssl-dev python3 rsync unzip wget
+
+      - name: Download OpenWrt SDK (armsr armv8)
+        run: |
+          wget https://downloads.openwrt.org/snapshots/targets/armsr/armv8/openwrt-sdk-armsr-armv8_*.tar.xz
+          tar -xf openwrt-sdk-*.tar.xz
+          mv openwrt-sdk-* sdk
+
+      - name: Clone driver (rtl8189fs branch)
+        run: |
+          git clone -b rtl8189fs https://github.com/andrereynaldi/rtl8189ES_linux.git driver
+
+      - name: Inject kmod package
+        run: |
+          mkdir -p sdk/package/kernel/rtl8189fs
+          cp -r driver/* sdk/package/kernel/rtl8189fs/src
+
+          printf '%s\n' \
+"include \$(TOPDIR)/rules.mk" \
+"include \$(INCLUDE_DIR)/kernel.mk" \
+"include \$(INCLUDE_DIR)/package.mk" \
+"" \
+"PKG_NAME:=kmod-rtl8189fs" \
+"PKG_RELEASE:=1" \
+"" \
+"define KernelPackage/rtl8189fs" \
+"  SUBMENU:=Wireless Drivers" \
+"  TITLE:=Realtek RTL8189FS WiFi" \
+"  DEPENDS:=+kmod-cfg80211" \
+"  FILES:=\$(PKG_BUILD_DIR)/8189fs.ko" \
+"  AUTOLOAD:=\$(call AutoLoad,50,8189fs)" \
+"endef" \
+"" \
+"define Build/Prepare" \
+"	mkdir -p \$(PKG_BUILD_DIR)" \
+"	cp -r ./src/* \$(PKG_BUILD_DIR)/" \
+"endef" \
+"" \
+"define Build/Compile" \
+"	\$(MAKE) -C \"\$(LINUX_DIR)\" \\" \
+"		M=\"\$(PKG_BUILD_DIR)\" \\" \
+"		ARCH=\"\$(LINUX_KARCH)\" \\" \
+"		CROSS_COMPILE=\"\$(TARGET_CROSS)\" \\" \
+"		modules" \
+"endef" \
+"" \
+"\$(eval \$(call KernelPackage,rtl8189fs))" \
+> sdk/package/kernel/rtl8189fs/Makefile
+
+      - name: Build kmod
+        run: |
+          cd sdk
+          make defconfig
+          make package/kernel/rtl8189fs/compile V=s
+
+      - name: Verify module
+        run: |
+          FILE=$(find sdk/ -name "8189fs.ko")
+          if [ -z "$FILE" ]; then
+            echo "ERROR: 8189fs.ko tidak ditemukan!"
+            exit 1
+          fi
+          echo "Module ditemukan: $FILE"
+
+      - name: Collect APK
+        run: |
+          mkdir output
+          find sdk/bin/packages/ -name "*.apk" -exec cp {} output/ \;
+          ls -lah output
+
+      - name: Rename APK
+        run: |
+          cd output
+          for f in *.apk; do
+            mv "$f" "kmod-rtl8189fs-k6.12-$f"
+          done
+
+      - name: Generate tag
+        id: tag
+        run: |
+          echo "TAG=rtl8189fs-k6.12-$(date +%Y%m%d-%H%M)" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.TAG }}
+          name: RTL8189FS Kernel 6.12 APK ${{ steps.tag.outputs.TAG }}
+          files: output/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
