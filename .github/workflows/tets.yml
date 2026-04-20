@@ -24,7 +24,7 @@ jobs:
         run: |
           git clone -b rtl8189fs https://github.com/andrereynaldi/rtl8189ES_linux.git driver
 
-      - name: Inject kmod package (anti error YAML)
+      - name: Inject kmod package
         run: |
           mkdir -p sdk/package/kernel/rtl8189fs
           cp -r driver/* sdk/package/kernel/rtl8189fs/src
@@ -67,7 +67,7 @@ jobs:
           make defconfig
           make package/kernel/rtl8189fs/compile V=s
 
-      - name: Verify module (.ko)
+      - name: Verify module
         run: |
           FILE=$(find sdk/ -name "8189fs.ko")
           if [ -z "$FILE" ]; then
